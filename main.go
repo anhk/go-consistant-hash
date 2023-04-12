@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"hash/fnv"
 	"sort"
 	"sync"
 )
@@ -26,19 +25,19 @@ type ConsistantHash struct {
 	Replicas int // 副本数量
 	Nodes    map[string]struct{}
 	Servers  map[uint32]string
-	circle   uints
+	Circle   uints
 	sync.RWMutex
 }
 
 func (hash *ConsistantHash) add(slot string) {
 	for i := 0; i < hash.Replicas; i++ {
-		key := FNVHash(slot)
-		hash.circle = append(hash.circle, key)
+		key := FNVHash(fmt.Sprintf("%v#%v", slot, i))
+		hash.Circle = append(hash.Circle, key)
 		hash.Servers[key] = slot
 	}
 
 	hash.Nodes[slot] = struct{}{}
-	sort.Sort(hash.circle)
+	sort.Sort(hash.Circle)
 }
 
 func (hash *ConsistantHash) Add(slot string) {
@@ -53,10 +52,17 @@ func (hash *ConsistantHash) Get(name string) string {
 	defer hash.RUnlock()
 
 	key := FNVHash(name)
-	i := sort.Search(len(hash.circle), func(i int) bool {
-		return hash.circle[i] >= key
+	i := sort.Search(len(hash.Circle), func(i int) bool {
+		return hash.Circle[i] >= key
 	})
-	return hash.Servers[hash.circle[i]]
+	fmt.Println("=======")
+	fmt.Println("key:", key)
+	fmt.Println("i:", i)
+
+	if i >= hash.Circle.Len() {
+		i = 0
+	}
+	return hash.Servers[hash.Circle[i]]
 }
 
 func main() {
@@ -64,7 +70,7 @@ func main() {
 		Replicas: 32,
 		Nodes:    make(map[string]struct{}),
 		Servers:  make(map[uint32]string),
-		circle:   make([]uint32, 0),
+		Circle:   make([]uint32, 0),
 	}
 
 	ch.Add("192.168.0.1")
@@ -73,16 +79,30 @@ func main() {
 	ch.Add("192.168.0.4")
 	ch.Add("192.168.0.5")
 
-	fmt.Println(ch.Get("helloworld"))
-	fmt.Println(ch.Get("helloworld"))
-	fmt.Println(ch.Get("helloworld"))
+	fmt.Println(ch.Circle)
+
+	fmt.Println(ch.Get("a"))
+	fmt.Println(ch.Get("hellowor32ld"))
+	fmt.Println(ch.Get("11helloworld"))
+	fmt.Println(ch.Get("a4asdf"))
+	fmt.Println(ch.Get("rsgw"))
+	fmt.Println(ch.Get("4"))
+	fmt.Println(ch.Get("a"))
+	fmt.Println(ch.Get("asdf"))
+	fmt.Println(ch.Get("44"))
 }
 
-// 默认的hash函数
-// 测试的发现 fnv hash 函数对于 key 相差不多的
-// 映射出来的 uint32 值十分相近
 func FNVHash(name string) uint32 {
-	f := fnv.New32()
-	f.Write([]byte(name))
-	return f.Sum32()
+	p := uint32(16777619)
+	hash := uint32(2166136261)
+
+	for i := 0; i < len(name); i++ {
+		hash = (hash ^ uint32(name[i])) * p
+	}
+	hash += hash << 13
+	hash ^= hash >> 7
+	hash += hash << 3
+	hash ^= hash >> 17
+	hash += hash << 5
+	return hash
 }
